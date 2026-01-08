@@ -1,0 +1,859 @@
+# Response Types Guidelines
+
+This document provides comprehensive guidelines for implementing and using response types in NestJS applications.
+
+## 📋 Table of Contents
+
+- [Overview](#overview)
+- [Response Status Types](#response-status-types)
+- [Type Definitions](#type-definitions)
+- [Implementation Guidelines](#implementation-guidelines)
+- [Use Cases](#use-cases)
+- [Best Practices](#best-practices)
+- [Examples](#examples)
+
+## Overview
+
+The response types system provides a comprehensive framework for handling different types of API responses in NestJS applications. It includes specific types for each response status, utility functions for creating responses, and comprehensive use cases.
+
+### Key Features
+
+- **Type Safety**: Strongly typed responses with generics
+- **Comprehensive Status Support**: 10 different response statuses
+- **Utility Functions**: Helper functions for creating responses
+- **Pagination Support**: Both page-based and cursor-based pagination
+- **Error Handling**: Detailed error information and stack traces
+- **Progress Tracking**: For long-running operations
+- **Internationalization**: Message keys for multi-language support
+- **Development Support**: Stack traces and detailed error logging
+
+## Response Status Types
+
+### Core Statuses
+
+| Status         | Description                      | HTTP Code | Use Case                 |
+| -------------- | -------------------------------- | --------- | ------------------------ |
+| `SUCCESS`      | Operation completed successfully | 200       | Successful operations    |
+| `WARNING`      | Success with warnings            | 200       | Non-critical issues      |
+| `INFO`         | Informational messages           | 200       | System notifications     |
+| `PARTIAL`      | Partial success                  | 200       | Mixed results            |
+| `PENDING`      | Queued operations                | 200       | Background jobs          |
+| `PROCESSING`   | In-progress operations           | 200       | Long-running tasks       |
+| `CANCELLED`    | Cancelled operations             | 200       | User/system cancellation |
+| `UNAUTHORIZED` | Authentication required          | 401       | Authentication errors    |
+| `ERROR`        | Operation failed                 | 400-500   | Various error types      |
+| `TIMEOUT`      | Timeout errors                   | 500       | Timeout handling         |
+
+## Type Definitions
+
+### Base Response Interface
+
+```typescript
+interface BaseResponse {
+  code: HttpStatus;
+  status: EResponseStatus;
+  message: string;
+  messageKey?: string;
+  path: string;
+  timestamp: string;
+}
+```
+
+### Specific Response Types
+
+#### Success Response
+
+```typescript
+interface SuccessResponse<T = unknown> extends BaseResponse {
+  status: EResponseStatus.SUCCESS;
+  data?: T;
+}
+
+function createSuccessResponse<T = unknown>({
+  data,
+  message,
+  messageKey,
+  path,
+}: {
+  data: T;
+  message: string;
+  messageKey?: string;
+  path?: string;
+}): SuccessResponse<T>;
+```
+
+#### Error Response ✅ Implemented
+
+```typescript
+interface ErrorResponse extends BaseResponse {
+  status: EResponseStatus;
+  errors?: Record<string, unknown>;
+  stack?: string;
+  printLogger?: boolean;
+}
+
+function createErrorResponse({
+  code,
+  error,
+  message,
+  messageKey,
+  errors,
+  path,
+  printLogger = false,
+}: {
+  code?: HttpStatus;
+  error: unknown;
+  message?: string;
+  messageKey?: string;
+  errors?: Record<string, unknown>;
+  path?: string;
+  printLogger?: boolean;
+}): ErrorResponse;
+```
+
+**Implementation Details**:
+
+- Automatically maps NestJS exceptions to appropriate HTTP status codes
+- Extracts `printLogger` preference from nested error responses
+- Includes stack traces only in development mode
+- Maps `UnauthorizedException` to `EResponseStatus.UNAUTHORIZED`
+- Defaults to `HttpStatus.INTERNAL_SERVER_ERROR` if no code provided
+
+**Location**: `libs/common/src/responses/types/error-response.types.ts`
+
+#### Warning Response
+
+```typescript
+interface WarningResponse extends BaseResponse {
+  status: EResponseStatus.WARNING;
+  warnings?: string[];
+  details?: Record<string, unknown>;
+}
+
+function createWarningResponse({
+  message,
+  warnings,
+  details,
+  messageKey,
+  path,
+}: {
+  message: string;
+  warnings?: string[];
+  details?: Record<string, unknown>;
+  messageKey?: string;
+  path?: string;
+}): WarningResponse;
+```
+
+#### Info Response
+
+```typescript
+interface InfoResponse extends BaseResponse {
+  status: EResponseStatus.INFO;
+  info?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+
+function createInfoResponse({
+  message,
+  messageKey,
+  path,
+}: {
+  message: string;
+  messageKey?: string;
+  path?: string;
+}): InfoResponse;
+```
+
+#### Partial Response
+
+```typescript
+interface PartialResponse<T = unknown> extends BaseResponse {
+  status: EResponseStatus.PARTIAL;
+  data?: T;
+  succeeded?: number;
+  failed?: number;
+  total?: number;
+  errors?: Array<{
+    item: unknown;
+    error: string;
+    index?: number;
+  }>;
+}
+
+function createPartialResponse<T = unknown>({
+  data,
+  message,
+  succeeded,
+  failed,
+  total,
+  errors,
+  messageKey,
+  path,
+}: {
+  data: T;
+  message: string;
+  succeeded: number;
+  failed: number;
+  total: number;
+  errors?: Array<{ item: unknown; error: string; index?: number }>;
+  messageKey?: string;
+  path?: string;
+}): PartialResponse<T>;
+```
+
+#### Processing Response
+
+```typescript
+interface ProcessingResponse extends BaseResponse {
+  status: EResponseStatus.PROCESSING;
+  progress?: number; // 0-100
+  stage?: string;
+  estimatedTimeRemaining?: number; // in seconds
+  currentStep?: string;
+  totalSteps?: number;
+  currentStepNumber?: number;
+}
+
+function createProcessingResponse({
+  message,
+  progress,
+  stage,
+  estimatedTimeRemaining,
+  currentStep,
+  totalSteps,
+  currentStepNumber,
+  messageKey,
+  path,
+}: {
+  message: string;
+  progress?: number;
+  stage?: string;
+  estimatedTimeRemaining?: number;
+  currentStep?: string;
+  totalSteps?: number;
+  currentStepNumber?: number;
+  messageKey?: string;
+  path?: string;
+}): ProcessingResponse;
+```
+
+#### Pagination Types ✅ Implemented
+
+**Note**: Pagination uses `MetaResponse<T, PaginatedMeta>` rather than a separate `PaginatedResponse` type.
+
+```typescript
+interface PaginatedMeta extends Record<string, unknown> {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  hasNextPage?: boolean;
+  hasPreviousPage?: boolean;
+  nextPage?: number;
+  previousPage?: number;
+}
+
+interface MetaResponse<T = unknown, M = unknown> extends SuccessResponse<T[]> {
+  meta: M;
+}
+
+function createPaginatedResponse<T = unknown, M extends PaginatedMeta = PaginatedMeta>({
+  data,
+  message,
+  page,
+  limit,
+  total,
+  messageKey,
+  path,
+  additionalMeta,
+}: {
+  data: T[];
+  message: string;
+  page: number;
+  limit: number;
+  total: number;
+  messageKey?: string;
+  path?: string;
+  additionalMeta?: Omit<M, keyof PaginatedMeta>;
+}): MetaResponse<T, M>;
+```
+
+**Usage in Controllers**:
+
+```typescript
+@Get()
+async findAll(
+  @Query() filterDto: UserFilterDto,
+  @Req() req: Request,
+): Promise<MetaResponse<UserDetailResponse, PaginatedMeta>> {
+  const { count, users } = await this.usersService.findAllUsers({ filterDto });
+
+  return createPaginatedResponse<UserDetailResponse>({
+    data: users.map(u => this.transformer.createUserDetailResponse(u)),
+    message: 'Users fetched successfully',
+    messageKey: UserLiteral.FETCHED_SUCCESS,
+    page: filterDto.page || 1,
+    limit: filterDto.limit || 10,
+    total: count,
+    path: req?.url,
+  });
+}
+```
+
+```typescript
+interface CursorMeta extends Record<string, unknown> {
+  cursor?: string;
+  limit: number;
+  hasMore: boolean;
+  nextCursor?: string;
+}
+
+interface CursorResponse<T = unknown> extends SuccessResponse<T[]> {
+  meta: CursorMeta;
+}
+
+function createCursorResponse<T = unknown>({
+  data,
+  message,
+  limit,
+  hasMore,
+  cursor,
+  nextCursor,
+  messageKey,
+  path,
+}: {
+  data: T[];
+  message: string;
+  limit: number;
+  hasMore: boolean;
+  cursor?: string;
+  nextCursor?: string;
+  messageKey?: string;
+  path?: string;
+}): CursorResponse & lt;
+T & gt;
+```
+
+#### Union Response Type ✅ Implemented
+
+````typescript
+
+```typescript
+type Response<T> =
+  | SuccessResponse<T>
+  | ErrorResponse
+  | WarningResponse
+  | InfoResponse
+  | PartialResponse<T>
+  | PendingResponse
+  | ProcessingResponse
+  | CancelledResponse
+  | TimeoutResponse
+  | MetaResponse<T>  // Note: Used for pagination and other meta responses
+  | CursorResponse<T>;
+````
+
+**Location**: `libs/common/src/responses/types/response.types.ts`
+
+### Enums
+
+#### Response Status Enum
+
+```typescript
+enum EResponseStatus {
+  SUCCESS = 'success',
+  ERROR = 'error',
+  WARNING = 'warning',
+  INFO = 'info',
+  PARTIAL = 'partial',
+  PENDING = 'pending',
+  PROCESSING = 'processing',
+  CANCELLED = 'cancelled',
+  TIMEOUT = 'timeout',
+  UNAUTHORIZED = 'unauthorized',
+}
+```
+
+#### Cancellation Reason Enum
+
+```typescript
+enum ECancellationReason {
+  USER = 'user',
+  SYSTEM = 'system',
+  TIMEOUT = 'timeout',
+  EXTERNAL = 'external',
+}
+```
+
+#### Timeout Type Enum
+
+```typescript
+enum ETimeoutType {
+  REQUEST = 'request',
+  DATABASE = 'database',
+  EXTERNAL_API = 'externalApi',
+  PROCESSING = 'processing',
+}
+```
+
+## Implementation Guidelines
+
+### 1. Import Response Types ✅ Implemented
+
+```typescript
+import {
+  SuccessResponse,
+  ErrorResponse,
+  WarningResponse,
+  InfoResponse,
+  PartialResponse,
+  ProcessingResponse,
+  MetaResponse, // Generic meta response (used for pagination)
+  PaginatedMeta, // Pagination metadata type
+  CursorResponse,
+  createSuccessResponse,
+  createErrorResponse,
+  createWarningResponse,
+  createInfoResponse,
+  createPartialResponse,
+  createProcessingResponse,
+  createPaginatedResponse,
+  createCursorResponse,
+  EResponseStatus,
+  ECancellationReason,
+  ETimeoutType,
+  Response,
+} from '@common/responses';
+```
+
+**Location**: `libs/common/src/responses/index.ts`
+
+### 2. Use Specific Types When Possible
+
+```typescript
+// ✅ Good - Specific type
+const userResponse: SuccessResponse<User> = createSuccessResponse({
+  data: user,
+  message: 'User retrieved successfully',
+  messageKey: 'user.retrieved.success',
+  path: '/api/users/1',
+});
+
+// ✅ Good - Union type for flexibility
+const response: Response<User> = successResponse || errorResponse;
+```
+
+### 3. Use Utility Functions for Consistency
+
+```typescript
+// ✅ Good - Using utility functions
+return createSuccessResponse({
+  data: user,
+  message: 'User retrieved successfully',
+  messageKey: 'user.retrieved.success',
+  path: `/api/users/${id}`,
+});
+
+// ✅ Good - Error handling
+return createErrorResponse({
+  error: error,
+  message: 'User not found',
+  messageKey: 'user.not.found',
+  path: `/api/users/${id}`,
+});
+```
+
+### 4. Include Meaningful Metadata
+
+```typescript
+// ✅ Good - Rich metadata
+const processingResponse: ProcessingResponse = createProcessingResponse({
+  message: 'File upload in progress',
+  progress: 65,
+  stage: 'Processing',
+  estimatedTimeRemaining: 30,
+  currentStep: 'Compressing images',
+  totalSteps: 5,
+  currentStepNumber: 3,
+  messageKey: 'file.upload.processing',
+  path: '/api/files/upload',
+});
+```
+
+## Use Cases
+
+### 1. Success Operations
+
+```typescript
+@Get(':id')
+async getUser(@Param('id') id: string): Promise<SuccessResponse<User>> {
+  const user = await this.userService.findById(id);
+  return createSuccessResponse({
+    data: user,
+    message: 'User retrieved successfully',
+    messageKey: 'user.retrieved.success',
+    path: `/api/users/${id}`,
+  });
+}
+```
+
+### 2. Error Handling
+
+```typescript
+@Post()
+async createUser(@Body() createUserDto: CreateUserDto): Promise<Response<User>> {
+  try {
+    const user = await this.userService.create(createUserDto);
+    return createSuccessResponse({
+      data: user,
+      message: 'User created successfully',
+      messageKey: 'user.created.success',
+      path: '/api/users',
+    });
+  } catch (error) {
+    if (error instanceof ValidationError) {
+      return createErrorResponse({
+        error: error.details,
+        message: 'Validation failed',
+        messageKey: 'user.validation.error',
+        path: '/api/users',
+        printLogger: false, // Don't log validation errors
+      });
+    }
+    return createErrorResponse({
+      error: error,
+      message: 'Internal server error',
+      messageKey: 'user.create.error',
+      path: '/api/users',
+      printLogger: true, // Log unexpected errors
+    });
+  }
+}
+```
+
+#### Error Handling in Use Cases
+
+```typescript
+// In use case - specific error with controlled logging
+if (existsUser) {
+  const errorResponse = createErrorResponse({
+    code: HttpStatus.CONFLICT,
+    error: new Error('User already exists'),
+    message: 'User already exists',
+    messageKey: UserLiteral.ALREADY_EXISTS,
+    printLogger: false, // Don't log business logic conflicts
+  });
+  throw new ConflictException(errorResponse);
+}
+```
+
+### 3. Bulk Operations
+
+```typescript
+@Post('bulk')
+async createUsers(@Body() users: CreateUserDto[]): Promise<PartialResponse<User[]>> {
+  const results = await this.userService.createBulk(users);
+
+  return createPartialResponse({
+    data: results.succeededUsers,
+    message: `${results.succeeded} of ${users.length} users created successfully`,
+    succeeded: results.succeeded,
+    failed: results.failed,
+    total: users.length,
+    errors: results.errors,
+    messageKey: 'users.bulk.created.partial',
+    path: '/api/users/bulk',
+  });
+}
+```
+
+### 4. Long-running Operations
+
+```typescript
+@Post('upload')
+async uploadFile(@UploadedFile() file: Express.Multer.File): Promise<ProcessingResponse> {
+  const uploadId = await this.fileService.startUpload(file);
+
+  return createProcessingResponse({
+    message: 'File upload started',
+    progress: 0,
+    stage: 'Initializing',
+    estimatedTimeRemaining: 60,
+    currentStep: 'Validating file',
+    totalSteps: 4,
+    currentStepNumber: 1,
+    messageKey: 'file.upload.started',
+    path: '/api/files/upload',
+  });
+}
+```
+
+### 5. Pagination ✅ Implemented
+
+```typescript
+@Get()
+async getUsers(
+  @Query() filterDto: UserFilterDto,
+  @Req() req: Request,
+): Promise<MetaResponse<UserDetailResponse, PaginatedMeta>> {
+  const { count, users } = await this.userService.findAllUsers({ filterDto });
+
+  return createPaginatedResponse<UserDetailResponse>({
+    data: users.map(user => this.userTransformer.createUserDetailResponse(user)),
+    message: 'Users retrieved successfully',
+    messageKey: UserLiteral.FETCHED_SUCCESS,
+    page: filterDto.page || 1,
+    limit: filterDto.limit || 10,
+    total: count,
+    path: req?.url,
+  });
+}
+```
+
+**Note**:
+
+- Return type is `MetaResponse<T, PaginatedMeta>`, not `PaginatedResponse<T>`
+- `createPaginatedResponse` returns `MetaResponse<T, M>` where M extends `PaginatedMeta`
+- Supports `additionalMeta` parameter for extending pagination metadata
+
+## Best Practices
+
+### 1. Type Safety
+
+- ✅ Use specific types when you know the exact response type
+- ✅ Use union types when the response could be multiple types
+- ✅ Always include proper TypeScript types
+
+### 2. Error Handling Best Practices
+
+- ✅ Provide detailed error information for debugging
+- ✅ Include stack traces for development environments
+- ✅ Use appropriate HTTP status codes
+- ✅ Include meaningful error messages
+- ✅ Use `printLogger` flag to control error logging
+- ✅ Preserve specific error information from use cases/services
+- ✅ Handle NestJS exceptions with custom error responses
+
+### 3. User Experience
+
+- ✅ Include progress tracking for long-running operations
+- ✅ Provide estimated completion times
+- ✅ Use appropriate status messages
+- ✅ Include retry information for timeout responses
+
+### 4. Internationalization
+
+- ✅ Use message keys for all messages
+- ✅ Provide fallback messages
+- ✅ Support multiple languages
+
+### 5. Logging and Debugging
+
+- ✅ Include relevant paths for debugging
+- ✅ Add timestamps to all responses
+- ✅ Include request correlation IDs
+- ✅ Log response metadata
+
+### 6. Performance
+
+- ✅ Use cursor pagination for large datasets
+- ✅ Include pagination metadata
+- ✅ Optimize response payloads
+- ✅ Cache frequently accessed data
+
+### 7. Error Response Features
+
+- ✅ **printLogger Control**: Use `printLogger: false` to prevent console logging for specific errors
+- ✅ **Development Support**: Stack traces are automatically included in development mode
+- ✅ **Exception Handling**: Automatic mapping of NestJS exceptions to appropriate HTTP status codes
+- ✅ **Error Preservation**: Specific error information from use cases is preserved in responses
+- ✅ **Flexible Error Types**: Support for both simple errors and complex error objects
+
+### 8. Security
+
+- ✅ Don't expose sensitive information in error responses
+- ✅ Sanitize error messages in production
+- ✅ Use appropriate error codes
+- ✅ Include rate limiting information
+
+## Examples
+
+### Controller Implementation
+
+```typescript
+@Controller('users')
+export class UsersController {
+  constructor(private readonly usersService: UsersService) {}
+
+  @Post()
+  async createUser(@Body() createUserDto: CreateUserDto): Promise<Response<User>> {
+    try {
+      const user = await this.usersService.create(createUserDto);
+      return createSuccessResponse({
+        data: user,
+        message: 'User created successfully',
+        messageKey: 'user.created.success',
+        path: '/api/users',
+      });
+    } catch (error) {
+      if (error instanceof ValidationError) {
+        return createErrorResponse({
+          error: error.details,
+          message: 'Validation failed',
+          messageKey: 'user.validation.error',
+          path: '/api/users',
+        });
+      }
+      return createErrorResponse({
+        error: error,
+        message: 'Internal server error',
+        messageKey: 'user.create.error',
+        path: '/api/users',
+      });
+    }
+  }
+
+  @Get(':id')
+  async getUser(@Param('id') id: string): Promise<SuccessResponse<User> | ErrorResponse> {
+    try {
+      const user = await this.usersService.findById(id);
+      return createSuccessResponse({
+        data: user,
+        message: 'User retrieved successfully',
+        messageKey: 'user.retrieved.success',
+        path: `/api/users/${id}`,
+      });
+    } catch (error) {
+      return createErrorResponse({
+        error: error,
+        message: 'User not found',
+        messageKey: 'user.not.found',
+        path: `/api/users/${id}`,
+      });
+    }
+  }
+
+  @Get()
+  async getUsers(
+    @Query() filterDto: UserFilterDto,
+    @Req() req: Request,
+  ): Promise<MetaResponse<UserDetailResponse, PaginatedMeta>> {
+    const { count, users } = await this.usersService.findAllUsers({ filterDto });
+
+    return createPaginatedResponse<UserDetailResponse>({
+      data: users.map((user) => this.userTransformer.createUserDetailResponse(user)),
+      message: 'Users retrieved successfully',
+      messageKey: UserLiteral.FETCHED_SUCCESS,
+      page: filterDto.page || 1,
+      limit: filterDto.limit || 10,
+      total: count,
+      path: req?.url,
+    });
+  }
+}
+```
+
+### Service Implementation
+
+```typescript
+@Injectable()
+export class UsersService {
+  constructor(
+    private readonly usersRepository: UsersRepository,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
+
+  async findById(id: string): Promise<User> {
+    const user = await this.usersRepository.findById(id);
+    if (!user) {
+      throw new NotFoundException(`User with id ${id} not found`);
+    }
+    return user;
+  }
+
+  async create(createUserDto: CreateUserDto): Promise<User> {
+    const user = await this.usersRepository.create(createUserDto);
+    this.eventEmitter.emit('user.created', user);
+    return user;
+  }
+
+  async findPaginated(page: number, limit: number): Promise<{ data: User[]; total: number }> {
+    const [data, total] = await this.usersRepository.findAndCount({
+      skip: (page - 1) * limit,
+      take: limit,
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return { data, total };
+  }
+}
+```
+
+### Interceptor for Response Formatting
+
+```typescript
+@Injectable()
+export class ResponseInterceptor implements NestInterceptor {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+    return next.handle().pipe(
+      map((data) => {
+        const request = context.switchToHttp().getRequest();
+        const path = request.url;
+
+        // If data is already a formatted response, return as is
+        if (data && typeof data === 'object' && 'code' in data) {
+          return data;
+        }
+
+        // Format as success response
+        return createSuccessResponse({
+          data: data,
+          message: 'Operation completed successfully',
+          path: path,
+        });
+      }),
+    );
+  }
+}
+```
+
+## Summary
+
+The response types system provides a comprehensive framework for handling different types of API responses in NestJS applications. By following these guidelines, you can create consistent, type-safe, and user-friendly APIs that provide excellent developer and user experiences.
+
+Key takeaways:
+
+1. **Use specific types** when you know the exact response type
+2. **Use utility functions** for consistent response creation
+3. **Include meaningful metadata** for better user experience
+4. **Handle errors gracefully** with detailed information
+5. **Follow best practices** for type safety and performance
+6. **Consider user experience** in all response designs
+7. **Use MetaResponse for pagination** - `MetaResponse<T, PaginatedMeta>` not `PaginatedResponse<T>`
+
+## Implementation Status
+
+### ✅ Fully Implemented Response Types
+
+| Type                 | Status | Location                                                       |
+| -------------------- | ------ | -------------------------------------------------------------- |
+| `SuccessResponse<T>` | ✅     | `libs/common/src/responses/types/success-response.types.ts`    |
+| `ErrorResponse`      | ✅     | `libs/common/src/responses/types/error-response.types.ts`      |
+| `WarningResponse`    | ✅     | `libs/common/src/responses/types/warning-response.types.ts`    |
+| `InfoResponse`       | ✅     | `libs/common/src/responses/types/info-response.types.ts`       |
+| `PartialResponse<T>` | ✅     | `libs/common/src/responses/types/partial-response.types.ts`    |
+| `PendingResponse`    | ✅     | `libs/common/src/responses/types/pending-response.types.ts`    |
+| `ProcessingResponse` | ✅     | `libs/common/src/responses/types/processing-response.types.ts` |
+| `CancelledResponse`  | ✅     | `libs/common/src/responses/types/cancelled-response.types.ts`  |
+| `TimeoutResponse`    | ✅     | `libs/common/src/responses/types/timeout-response.types.ts`    |
+| `MetaResponse<T, M>` | ✅     | `libs/common/src/responses/types/meta-response.types.ts`       |
+| `CursorResponse<T>`  | ✅     | `libs/common/src/responses/types/cursor-response.types.ts`     |
+
+### Important Notes
+
+- **Pagination**: Uses `MetaResponse<T, PaginatedMeta>`, not a separate `PaginatedResponse` type
+- **Error Handling**: `createErrorResponse` automatically maps NestJS exceptions to HTTP status codes
+- **Development Mode**: Stack traces are only included when `NODE_ENV === 'development'`
+- **Print Logger**: `printLogger` flag controls console error logging (useful for business logic errors)
+- **Path Default**: All response creators default `path` to `'/api'` if not provided

@@ -1,0 +1,268 @@
+---
+alwaysApply: true
+---
+
+# Backend Architecture Guidelines
+
+## 1. Project Architecture
+
+### Monorepo Structure
+
+- Microservices hosted in a single repository, using a single service applying practices that allow a future division in real microservices
+- Clean modular structure using domain-based modules (users, auth, etc.)
+- Layer separation: Controller, Service, Repository/DataAccess, DTOs, Entities
+- SOLID principles and Clean Architecture
+- Compatible with scalable monolith or microservices
+
+### Folder Structure
+
+```bash
+backend/
+├── apps/
+│   ├── api-gateway/
+│   │   ├── src/
+│   │   │   ├── users/
+│   │   │   │   ├── application/
+│   │   │   │   │   ├── services/
+│   │   │   │   │   │   ├── users.service.ts
+│   │   │   │   │   │   └── users.service.spec.ts
+│   │   │   │   │   ├── use-cases/
+│   │   │   │   │   │   ├── users.use-case.ts
+│   │   │   │   │   │   └── users.use-case.spec.ts
+│   │   │   │   │   └── mappers/
+│   │   │   │   │       ├── user.mapper.ts
+│   │   │   │   │       └── user.mapper.spec.ts
+│   │   │   │   ├── domain/
+│   │   │   │   │   ├── entities/
+│   │   │   │   │   │   ├── user.entity.ts
+│   │   │   │   │   │   └── user.entity.spec.ts
+│   │   │   │   │   ├── repositories/
+│   │   │   │   │   │   ├── user.repository.ts
+│   │   │   │   │   │   └── user.repository.spec.ts
+│   │   │   │   │   └── events/
+│   │   │   │   │       └── user-created.event.ts
+│   │   │   │   ├── infrastructure/
+│   │   │   │   │   ├── repositories/
+│   │   │   │   │   │   ├── mock-user.repository.ts
+│   │   │   │   │   │   └── mock-user.repository.spec.ts
+│   │   │   │   │   ├── controllers/
+│   │   │   │   │   │   ├── users.controller.ts
+│   │   │   │   │   │   └── users.controller.spec.ts
+│   │   │   │   │   ├── guards/
+│   │   │   │   │   ├── middlewares/
+│   │   │   │   │   └── transformers/
+│   │   │   │   └── users.module.ts
+│   │   │   ├── ...
+│   │   │   ├── main.ts
+│   │   │   └── app.module.ts
+│   │   ├── test/
+│   │   │   └── ...
+│   │   └── tsconfig.app.json
+│   ├── <future-microservice>/
+│   │   └── ...
+│   └── ...
+│
+├── libs/
+│   ├── common/
+│   │   └── src/
+│   │       ├── decorators/
+│   │       ├── filters/
+│   │       ├── guards/
+│   │       ├── interceptors/
+│   │       ├── middlewares/
+│   │       ├── responses/
+│   │       ├── types/
+│   │       └── index.ts
+│   ├── contracts/
+│   │   └── src/
+│   │       ├── user/
+│   │       │   ├── dtos/
+│   │       │   │   ├── create-user.dto.ts
+│   │       │   │   └── update-user.dto.ts
+│   │       │   ├── models/
+│   │       │   │   └── user.model.ts
+│   │       │   ├── events/
+│   │       │   │   └── user-registered.event.ts
+│   │       │   └── index.ts
+│   │       ├── user/
+│   │       │   ├── dtos/
+│   │       │   ├── models/
+│   │       │   └── index.ts
+│   │       ├── ...
+│   │       └── index.ts
+│   ├── database/
+│   │   └── src/
+│   │       ├── prisma/
+│   │       │   └── prisma.service.ts
+│   │       ├── mongo/
+│   │       │   └── mongo.service.ts
+│   │       ├── database.module.ts
+│   │       └── index.ts
+│   ├── environment/
+│   │   └── src/
+│   │       ├── env.config.mock.ts
+│   │       ├── env.config.ts
+│   │       ├── env.validation.ts
+│   │       └── index.ts
+│   ├── events/
+│   │   └── src/
+│   │       ├── application/
+│   │       │   ├── events.service.ts
+│   │       │   ├── events.service.spec.ts
+│   │       ├── domain/
+│   │       │   ├── event.entity.ts
+│   │       │   ├── event.entity.spec.ts
+│   │       │   ├── event.repository.ts
+│   │       │   └── event.repository.spec.ts
+│   │       ├── infrastructure/
+│   │       │   ├── mock-event.repository.ts
+│   │       │   └── mock-event.repository.spec.ts
+│   │       └── index.ts
+│   ├── observability/
+│   │   └── src/
+│   │       ├── observability.module.ts
+│   │       ├── posthog/
+│   │       └── sentry.config.ts
+│   └── ...
+└── ...
+
+```
+
+## 2. Layer Separation
+
+### Controller Layer
+
+- Handle HTTP requests and responses
+- Input validation using DTOs
+- Error handling and status codes
+- Authentication/authorization checks
+- **CRITICAL**: Controllers MUST NEVER directly access repositories. All repository access must go through services.
+
+### Service Layer
+
+- Business logic implementation
+- Use case orchestration
+- Data transformation
+- Event emission
+- **CRITICAL**: Services are the primary layer for accessing repositories. Services handle most data access operations.
+
+### Repository Layer
+
+- Data access abstraction
+- Database operations
+- Query optimization
+- Transaction management
+- **CRITICAL**: Repositories should NOT be accessed from Controllers. They can be accessed from Services and Use Cases when needed for complex operations or transactions.
+
+### Use Case Layer
+
+- Complex business workflows
+- Multi-step operations
+- Transaction orchestration
+- **NOTE**: Use Cases can access PrismaService directly for transaction management and complex queries that span multiple repositories.
+
+### Domain Layer
+
+- Entity definitions
+- Value objects
+- Domain events
+- Business rules
+
+### Layer Access Rules
+
+**IMPORTANT**: The following access rules must be strictly followed:
+
+- **Repositories**: Can be accessed from Services and Use Cases. Never from Controllers.
+- **PrismaService**: Can be accessed from Services and Use Cases for transaction management. Never from Controllers.
+- **Controllers**: Can ONLY access Services and Use Cases. Never access Repositories or PrismaService directly.
+- **Use Cases**: Can access Services, Repositories, and PrismaService for complex operations and transactions.
+- **Services**: Can access Repositories, PrismaService, and other Services.
+
+**Rationale**: Use Cases may need direct access to PrismaService for transaction management and to repositories for complex queries that don't fit well in service methods. This maintains flexibility while preserving separation of concerns.
+
+This ensures proper separation of concerns and maintains clean architecture principles while allowing necessary flexibility for complex operations.
+
+## 3. Communication Patterns
+
+### Event-Driven Architecture
+
+- Use @nestjs/event-emitter for internal events
+- Future: RabbitMQ or Kafka for inter-service communication
+- Event sourcing for audit trails
+
+### Service Communication
+
+- REST APIs for synchronous communication
+- Events for asynchronous communication
+- Contract testing for microservices
+
+## 4. Scalability Patterns
+
+### Horizontal Scaling
+
+- Stateless services
+- Shared database or database per service
+- Load balancing strategies
+- Circuit breaker patterns
+
+### Vertical Scaling
+
+- Resource optimization
+- Caching strategies
+- Database query optimization
+- Connection pooling
+
+## 5. Security Architecture
+
+### Authentication
+
+- JWT tokens with Passport
+- Multiple strategies (local, external)
+- Token refresh mechanisms
+
+### Authorization
+
+- Role-based access control (RBAC)
+- Attribute-based access control (ABAC)
+- Resource-level permissions
+
+### Data Protection
+
+- Input validation and sanitization
+- SQL injection prevention
+- XSS protection
+- Rate limiting
+
+## 6. Error Handling
+
+### Global Exception Filters
+
+- Centralized error handling
+- Consistent error responses
+- Internal vs external error distinction
+- Logging and monitoring integration
+
+### Error Categories
+
+- Validation errors (400)
+- Authentication errors (401)
+- Authorization errors (403)
+- Not found errors (404)
+- Business logic errors (422)
+- System errors (500)
+
+## 7. Configuration Management
+
+### Environment Configuration
+
+- @nestjs/config with Joi validation
+- Environment-specific settings
+- Secret management
+- Feature flags
+
+### Database Configuration
+
+- Connection pooling
+- Migration strategies
+- Backup and recovery
+- Performance monitoring

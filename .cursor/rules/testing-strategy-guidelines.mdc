@@ -1,0 +1,845 @@
+---
+description: Testing patterns and standards for NestJS applications
+globs: ['**/*.spec.ts', '**/*.e2e-spec.ts', 'test/**/*.ts']
+alwaysApply: false
+---
+
+# Testing Strategy Guidelines
+
+## 1. Testing Pyramid ✅ Implemented
+
+### Testing Levels
+
+- **Unit Tests**: 70% - Individual functions, classes, and methods
+- **Integration Tests**: 20% - Service interactions, database operations
+- **E2E Tests**: 10% - Complete user workflows, API endpoints
+
+### Test Coverage Targets
+
+- **Critical Services**: 90%+ coverage
+- **Business Logic**: 85%+ coverage
+- **Controllers**: 80%+ coverage
+- **Utilities**: 95%+ coverage
+
+### Current Implementation Status ⚠️ Partial
+
+**Implemented**:
+
+- ✅ Jest configured with proper module mapping
+- ✅ Unit tests for mappers, services, repositories, entities
+- ✅ Mock repositories pattern established
+- ✅ E2E test structure in place
+- ✅ Test utilities (event emitter mocks, Prisma mocks)
+
+**Pending**:
+
+- ⏳ Integration tests with real database (Testcontainers)
+- ⏳ Complete E2E test coverage
+- ⏳ Test data factories
+- ⏳ Performance/load tests
+- ⏳ Contract tests
+
+**Test File Locations**:
+
+- Unit tests: Co-located with source files (`*.spec.ts`)
+- E2E tests: `apps/api-gateway/test/*.e2e-spec.ts`
+- Mock repositories: `apps/api-gateway/src/*/infrastructure/repository/mock-*.repository.ts`
+
+## 2. Unit Testing Patterns
+
+### Service Testing ✅ Implemented
+
+```typescript
+// users.service.spec.ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { eventEmitterMock } from '@events/test/event-emitter.mock';
+import { UsersService } from './users.service';
+import { UserRepository } from '../../domain/repositories/user.repository';
+import { MockUserRepository } from '../../infrastructure/repository/mock-user.repository';
+import { DatabaseModule } from '@database/database.module';
+import { ObjectId } from 'mongodb';
+import { UserEntity } from '../../domain/entities/user.entity';
+import { CreateUserDto, UpdateUserDto } from '@contract/user';
+import { EUserRole } from '@contract/user';
+import { NotFoundException } from '@nestjs/common';
+
+describe('UsersService', () => {
+  let service: UsersService;
+  let repository: MockUserRepository;
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      imports: [DatabaseModule],
+      providers: [
+        UsersService,
+        {
+          provide: EventEmitter2,
+          useValue: eventEmitterMock,
+        },
+        {
+          provide: UserRepository,
+          useClass: MockUserRepository,
+        },
+      ],
+    }).compile();
+
+    service = module.get<UsersService>(UsersService);
+    repository = module.get<MockUserRepository>(UserRepository);
+  });
+
+  afterEach(() => jest.clearAllMocks());
+
+  describe('createUser', () => {
+    it('should create a new user', async () => {
+      const userId = new ObjectId();
+      const createDto: CreateUserDto = {
+        email: 'test@example.com',
+        password: 'password123',
+        firstName: 'John',
+        lastName: 'Doe',
+        phoneNumber: '+1234567890',
+      };
+
+      const findByEmailSpy = jest.spyOn(repository, 'findByEmail').mockResolvedValue(null);
+      const saveSpy = jest.spyOn(repository, 'save').mockImplementation((user) => Promise.resolve(user));
+
+      const result = await service.createUser(createDto);
+
+      expect(result).toBeInstanceOf(UserEntity);
+      expect(findByEmailSpy).toHaveBeenCalledWith(createDto.email);
+      expect(saveSpy).toHaveBeenCalled();
+    });
+  });
+});
+```
+
+**Key Patterns**:
+
+- Use `Mock*Repository` classes that extend base repository classes
+- Import `DatabaseModule` for database-related tests
+- Use `eventEmitterMock` from `@events/test/event-emitter.mock` for event emitter mocking
+- Use `ObjectId` from `mongodb` for ID generation
+- Mock services with `useValue` when only specific methods are needed
+- Use `useClass` for repository mocks that extend base classes
+
+### Mapper Testing ✅ Implemented
+
+**Pattern**: Test mapper functions that convert between models and entities.
+
+```typescript
+// user.mapper.spec.ts
+import { ObjectId } from 'mongodb';
+import { UserModel, EUserRole } from '@contract/user';
+import { UserMapper } from './user.mapper';
+import { UserEntity } from '../../domain/entities/user.entity';
+
+const TEST_USER_ID_1 = new ObjectId('507f1f77bcf86cd799439013');
+
+describe('UserMapper', () => {
+  let mockUserModel: UserModel;
+  let mockUserEntity: UserEntity;
+
+  beforeEach(() => {
+    const now = new Date();
+
+    mockUserModel = {
+      id: TEST_USER_ID_1,
+      email: 'test@example.com',
+      firstName: 'John',
+      lastName: 'Doe',
+      phoneNumber: '+1234567890',
+      roles: [EUserRole.PROFESSIONAL],
+      isEmailVerified: true,
+      isPhoneNumberVerified: false,
+      locale: 'en',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    mockUserEntity = new UserEntity(mockUserModel);
+  });
+
+  describe('toEntity', () => {
+    it('should convert UserModel to UserEntity', () => {
+      const result = UserMapper.toEntity(mockUserModel);
+
+      expect(result).toBeInstanceOf(UserEntity);
+      expect(result.email).toBe(mockUserModel.email);
+      expect(result.roles).toEqual(mockUserModel.roles);
+    });
+  });
+
+  describe('round-trip conversion', () => {
+    it('should maintain data integrity when converting Model to Entity and back', () => {
+      const entity = UserMapper.toEntity(mockUserModel);
+      const model = UserMapper.toModel(entity);
+
+      expect(model.email).toEqual(mockUserModel.email);
+      expect(model.roles).toEqual(mockUserModel.roles);
+    });
+  });
+});
+```
+
+**Key Patterns**:
+
+- Test conversion in both directions (toEntity, toModel)
+- Test round-trip conversions for data integrity
+- Test list conversions (toEntityList, toModelList)
+- Use `ObjectId` constants for test data
+- Test edge cases (empty arrays, null values)
+
+### Repository Testing ✅ Implemented
+
+**Pattern**: Test both the repository interface and the mock repository implementation.
+
+```typescript
+// user.repository.spec.ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { UserRepository } from './user.repository';
+import { MockUserRepository } from '../../infrastructure/repository/mock-user.repository';
+import { DatabaseModule } from '@database/database.module';
+import { PrismaService } from '@database/prisma/prisma.service';
+import { prismaServiceMock } from '@database/prisma/test/prisma.service.mock';
+import { ObjectId } from 'mongodb';
+import { UserEntity } from '../entities/user.entity';
+
+describe('UserRepository', () => {
+  let repository: UserRepository;
+  let mockRepository: MockUserRepository;
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      imports: [DatabaseModule],
+      providers: [
+        {
+          provide: UserRepository,
+          useClass: MockUserRepository,
+        },
+        {
+          provide: PrismaService,
+          useValue: prismaServiceMock,
+        },
+      ],
+    }).compile();
+
+    repository = module.get<UserRepository>(UserRepository);
+    mockRepository = module.get<MockUserRepository>(UserRepository);
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('should be defined', () => {
+    expect(repository).toBeDefined();
+  });
+
+  it('should be an instance of UserRepository', () => {
+    expect(repository).toBeInstanceOf(UserRepository);
+  });
+});
+```
+
+**Mock Repository Pattern**:
+
+```typescript
+// mock-project-config.repository.ts
+import { Injectable } from '@nestjs/common';
+import { ObjectId } from 'mongodb';
+import { PrismaService } from '@database/prisma/prisma.service';
+import { ProjectConfigRepository } from '../../domain/repositories/project-config.repository';
+import { ProjectConfigEntity } from '../../domain/entities/project-config.entity';
+
+@Injectable()
+export class MockProjectConfigRepository extends ProjectConfigRepository {
+  constructor(private readonly prisma: PrismaService) {
+    super();
+  }
+
+  async save(projectConfig: ProjectConfigEntity): Promise<ProjectConfigEntity> {
+    // Implementation using PrismaService
+  }
+
+  async findById(id: ObjectId): Promise<ProjectConfigEntity | null> {
+    // Implementation
+  }
+}
+```
+
+**Key Patterns**:
+
+- Mock repositories extend base repository classes
+- Use `prismaServiceMock` from `@database/prisma/test/prisma.service.mock`
+- Test both interface compliance and implementation
+- Separate test files for repository interface and mock implementation
+
+## 3. Integration Testing
+
+### Database Integration Tests
+
+```typescript
+// user.integration.spec.ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { UserService } from './user.service';
+import { PrismaUserRepository } from './prisma-user.repository';
+import { UserModule } from './user.module';
+
+describe('User Integration Tests', () => {
+  let app: INestApplication;
+  let userService: UserService;
+  let prismaService: PrismaService;
+
+  beforeAll(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [UserModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    await app.init();
+
+    userService = moduleFixture.get<UserService>(UserService);
+    prismaService = moduleFixture.get<PrismaService>(PrismaService);
+  });
+
+  afterEach(async () => {
+    await prismaService.user.deleteMany();
+  });
+
+  afterAll(async () => {
+    await prismaService.$disconnect();
+    await app.close();
+  });
+
+  describe('User CRUD Operations', () => {
+    it('should create and retrieve a user', async () => {
+      const createUserDto = {
+        email: 'test@example.com',
+        password: 'password123',
+        firstName: 'John',
+        lastName: 'Doe',
+      };
+
+      const createdUser = await userService.createUser(createUserDto);
+      expect(createdUser).toBeDefined();
+      expect(createdUser.email).toBe(createUserDto.email);
+
+      const retrievedUser = await userService.findUserById(createdUser.id);
+      expect(retrievedUser).toBeDefined();
+      expect(retrievedUser.email).toBe(createUserDto.email);
+    });
+  });
+});
+```
+
+### Service Integration Tests
+
+```typescript
+// auth.integration.spec.ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { AuthService } from './auth.service';
+import { UserService } from '../user/user.service';
+import { JwtService } from '@nestjs/jwt';
+import { AuthModule } from './auth.module';
+
+describe('Auth Integration Tests', () => {
+  let authService: AuthService;
+  let userService: UserService;
+  let jwtService: JwtService;
+
+  beforeAll(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AuthModule],
+    }).compile();
+
+    authService = moduleFixture.get<AuthService>(AuthService);
+    userService = moduleFixture.get<UserService>(UserService);
+    jwtService = moduleFixture.get<JwtService>(JwtService);
+  });
+
+  describe('Authentication Flow', () => {
+    it('should register and login a user', async () => {
+      const registerDto = {
+        email: 'test@example.com',
+        password: 'password123',
+        firstName: 'John',
+        lastName: 'Doe',
+      };
+
+      const registeredUser = await authService.register(registerDto);
+      expect(registeredUser).toBeDefined();
+
+      const loginDto = {
+        email: registerDto.email,
+        password: registerDto.password,
+      };
+
+      const loginResult = await authService.login(loginDto);
+      expect(loginResult.accessToken).toBeDefined();
+      expect(loginResult.user.email).toBe(registerDto.email);
+    });
+  });
+});
+```
+
+## 4. E2E Testing
+
+### API Endpoint Testing ✅ Implemented
+
+```typescript
+// index.e2e-spec.ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication } from '@nestjs/common';
+import * as request from 'supertest';
+import { App } from 'supertest/types';
+import { AppModule } from '../src/app.module';
+
+describe('IndexController (e2e)', () => {
+  let app: INestApplication<App>;
+
+  beforeAll(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    await app.init();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  describe('GET /', () => {
+    it('should return 200 status code', () => {
+      return request(app.getHttpServer()).get('/').expect(200);
+    });
+
+    it('should return the correct message for test environment', () => {
+      return request(app.getHttpServer())
+        .get('/')
+        .expect(200)
+        .expect('Hello Ruumers! We are on test environment.');
+    });
+
+    it('should return text/html content type', () => {
+      return request(app.getHttpServer())
+        .get('/')
+        .expect(200)
+        .expect('Content-Type', /text\/html/);
+    });
+  });
+
+  describe('Unsupported HTTP methods', () => {
+    it('should return 404 for POST request', () => {
+      return request(app.getHttpServer()).post('/').expect(404);
+    });
+  });
+});
+```
+
+**Location**: `apps/api-gateway/test/*.e2e-spec.ts`
+
+**Key Patterns**:
+
+- E2E tests are in `apps/api-gateway/test/` directory
+- Use `AppModule` for full application setup
+- Test HTTP methods, status codes, content types
+- Test both success and error scenarios
+- Use `supertest` for HTTP assertions
+
+### Authentication E2E Tests
+
+```typescript
+// auth.e2e-spec.ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication } from '@nestjs/common';
+import * as request from 'supertest';
+import { AppModule } from '../app.module';
+
+describe('AuthController (e2e)', () => {
+  let app: INestApplication;
+
+  beforeAll(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    await app.init();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  describe('/auth/register (POST)', () => {
+    it('should register a new user', () => {
+      const registerDto = {
+        email: 'test@example.com',
+        password: 'password123',
+        firstName: 'John',
+        lastName: 'Doe',
+      };
+
+      return request(app.getHttpServer())
+        .post('/auth/register')
+        .send(registerDto)
+        .expect(201)
+        .expect((res) => {
+          expect(res.body).toHaveProperty('accessToken');
+          expect(res.body.user.email).toBe(registerDto.email);
+        });
+    });
+  });
+
+  describe('/auth/login (POST)', () => {
+    it('should login an existing user', async () => {
+      const registerDto = {
+        email: 'login@example.com',
+        password: 'password123',
+        firstName: 'John',
+        lastName: 'Doe',
+      };
+
+      await request(app.getHttpServer()).post('/auth/register').send(registerDto).expect(201);
+
+      const loginDto = {
+        email: registerDto.email,
+        password: registerDto.password,
+      };
+
+      return request(app.getHttpServer())
+        .post('/auth/login')
+        .send(loginDto)
+        .expect(200)
+        .expect((res) => {
+          expect(res.body).toHaveProperty('accessToken');
+          expect(res.body.user.email).toBe(loginDto.email);
+        });
+    });
+  });
+});
+```
+
+## 5. Test Utilities and Helpers ✅ Implemented
+
+### Mock Repositories
+
+**Pattern**: Mock repositories extend base repository classes and use PrismaService.
+
+```typescript
+// mock-project-config.repository.ts
+import { Injectable } from '@nestjs/common';
+import { ObjectId } from 'mongodb';
+import { PrismaService } from '@database/prisma/prisma.service';
+import { ProjectConfigRepository } from '../../domain/repositories/project-config.repository';
+import { ProjectConfigEntity } from '../../domain/entities/project-config.entity';
+
+@Injectable()
+export class MockProjectConfigRepository extends ProjectConfigRepository {
+  constructor(private readonly prisma: PrismaService) {
+    super();
+  }
+
+  async save(projectConfig: ProjectConfigEntity): Promise<ProjectConfigEntity> {
+      const result = await this.prisma.projectConfig.create({
+        data: {
+          id: projectConfig.id.toString(),
+          currency: projectConfig.currency,
+          country: projectConfig.country,
+        },
+      });
+
+    return ProjectConfigEntity.fromPrisma(result);
+  }
+
+  async findById(id: ObjectId): Promise<ProjectConfigEntity | null> {
+    const result = await this.prisma.projectConfig.findFirst({
+      where: { id: id.toString(), isDeleted: false },
+    });
+
+    return result ? ProjectConfigEntity.fromPrisma(result) : null;
+  }
+}
+```
+
+**Location**: `apps/api-gateway/src/*/infrastructure/repository/mock-*.repository.ts`
+
+### Unit Testing Examples ✅ Implemented
+
+**User Entity Testing Pattern**:
+
+```typescript
+// user.entity.spec.ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { ObjectId } from 'mongodb';
+import { UserEntity } from './user.entity';
+import { UserRepository } from '../repositories/user.repository';
+import { MockUserRepository } from '../../infrastructure/repository/mock-user.repository';
+import { DatabaseModule } from '@database/database.module';
+import { CreateUserDto, UpdateUserDto } from '@contract/user';
+import { EUserRole } from '@contract/user';
+
+describe('UserEntity', () => {
+  let entity: UserEntity;
+  const userId = new ObjectId();
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      imports: [DatabaseModule],
+      providers: [
+        UserEntity,
+        {
+          provide: UserRepository,
+          useClass: MockUserRepository,
+        },
+      ],
+    }).compile();
+
+    entity = module.get<UserEntity>(UserEntity);
+  });
+
+  describe('create()', () => {
+    it('should create user with required fields', () => {
+      const dto: CreateUserDto = {
+        email: 'test@example.com',
+        password: 'password123',
+        firstName: 'John',
+        lastName: 'Doe',
+        phoneNumber: '+1234567890',
+      };
+      const created = UserEntity.create(dto);
+
+      expect(created.email).toEqual(dto.email);
+      expect(created.firstName).toEqual(dto.firstName);
+    });
+  });
+});
+```
+
+**Key Patterns for Unit Testing**:
+
+- Test entity creation with required and optional fields
+- Test entity update methods
+- Test mapper conversions (toEntity, toModel, toEntityList, toModelList)
+- Test service methods with mocked repositories
+- Test use cases with mocked services
+- Test transformers for response creation
+- Test controllers with mocked services and transformers
+
+### Event Emitter Mocks
+
+```typescript
+// @events/test/event-emitter.mock.ts
+import { EventEmitter2 } from '@nestjs/event-emitter';
+
+export const eventEmitterMock: Partial<EventEmitter2> = {
+  emit: jest.fn(),
+  on: jest.fn(),
+  once: jest.fn(),
+  removeListener: jest.fn(),
+  removeAllListeners: jest.fn(),
+};
+```
+
+**Usage**:
+
+```typescript
+import { eventEmitterMock } from '@events/test/event-emitter.mock';
+
+{
+  provide: EventEmitter2,
+  useValue: eventEmitterMock,
+}
+```
+
+### Prisma Service Mocks
+
+```typescript
+// @database/prisma/test/prisma.service.mock.ts
+import { PrismaService } from '../prisma.service';
+
+export const prismaServiceMock: Partial<PrismaService> = {
+  // Mock Prisma client methods
+};
+```
+
+**Location**: `libs/database/src/prisma/test/prisma.service.mock.ts`
+
+### Test Constants
+
+**Pattern**: Use `ObjectId` constants for consistent test data.
+
+```typescript
+// Test constants
+const TEST_USER_ID_1 = new ObjectId('507f1f77bcf86cd799439011');
+const TEST_USER_ID_1 = new ObjectId('507f1f77bcf86cd799439013');
+```
+
+## 6. Test Configuration
+
+### Jest Configuration ✅ Implemented
+
+```javascript
+// jest.config.js
+module.exports = {
+  moduleFileExtensions: ['js', 'json', 'ts'],
+  rootDir: '.',
+  testRegex: '.*\\.spec\\.ts$',
+  transform: {
+    '^.+\\.(t|j)s$': 'ts-jest',
+  },
+  collectCoverageFrom: ['**/*.(t|j)s'],
+  coverageDirectory: './coverage',
+  testEnvironment: 'node',
+  roots: ['<rootDir>/apps/'],
+  moduleNameMapper: {
+    '^@common/(.*)$': '<rootDir>/libs/common/src/$1',
+    '^@env/(.*)$': '<rootDir>/libs/environment/src/$1',
+    '^@contract/(.*)$': '<rootDir>/libs/contracts/src/$1',
+    '^@events/(.*)$': '<rootDir>/libs/events/src/$1',
+    '^@database/(.*)$': '<rootDir>/libs/database/src/$1',
+    '^@observability/(.*)$': '<rootDir>/libs/observability/src/$1',
+  },
+};
+```
+
+**E2E Jest Configuration**:
+
+```json
+// apps/api-gateway/test/jest-e2e.json
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": ".",
+  "testEnvironment": "node",
+  "testRegex": ".e2e-spec.ts$",
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "moduleNameMapper": {
+    "^@common/(.*)$": "<rootDir>/../../../libs/common/src/$1",
+    "^@contract/(.*)$": "<rootDir>/../../../libs/contracts/src/$1",
+    "^@database/(.*)$": "<rootDir>/../../../libs/database/src/$1",
+    "^@env/(.*)$": "<rootDir>/../../../libs/environment/src/$1",
+    "^@events/(.*)$": "<rootDir>/../../../libs/events/src/$1",
+    "^@observability/(.*)$": "<rootDir>/../../../libs/observability/src/$1"
+  }
+}
+```
+
+**Location**: `jest.config.js` (root) and `apps/api-gateway/test/jest-e2e.json`
+
+## 7. Performance Testing
+
+### Load Testing
+
+```typescript
+// load-test/user-api.load.spec.ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication } from '@nestjs/common';
+import * as request from 'supertest';
+import { AppModule } from '../app.module';
+
+describe('User API Load Tests', () => {
+  let app: INestApplication;
+
+  beforeAll(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    await app.init();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('should handle concurrent user creation', async () => {
+    const concurrentRequests = 10;
+    const createUserPromises = [];
+
+    for (let i = 0; i < concurrentRequests; i++) {
+      const createUserDto = {
+        email: `test${i}@example.com`,
+        password: 'password123',
+      };
+
+      createUserPromises.push(request(app.getHttpServer()).post('/users').send(createUserDto).expect(201));
+    }
+
+    const results = await Promise.all(createUserPromises);
+    expect(results).toHaveLength(concurrentRequests);
+
+    results.forEach((result) => {
+      expect(result.body).toHaveProperty('id');
+      expect(result.body).toHaveProperty('email');
+    });
+  }, 30000);
+});
+```
+
+## 8. Contract Testing
+
+### API Contract Tests
+
+```typescript
+// contract/user-api.contract.spec.ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication } from '@nestjs/common';
+import * as request from 'supertest';
+import { AppModule } from '../app.module';
+
+describe('User API Contract Tests', () => {
+  let app: INestApplication;
+
+  beforeAll(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    await app.init();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  describe('User API Contract', () => {
+    it('should maintain user creation contract', async () => {
+      const createUserDto = {
+        email: 'contract@example.com',
+        password: 'password123',
+        firstName: 'John',
+        lastName: 'Doe',
+      };
+
+      const response = await request(app.getHttpServer()).post('/users').send(createUserDto).expect(201);
+
+      // Verify response structure
+      expect(response.body).toMatchObject({
+        id: expect.any(String),
+        email: createUserDto.email,
+        firstName: createUserDto.firstName,
+        lastName: createUserDto.lastName,
+        createdAt: expect.any(String),
+        updatedAt: expect.any(String),
+      });
+
+      // Verify data types
+      expect(typeof response.body.id).toBe('string');
+      expect(typeof response.body.email).toBe('string');
+      expect(typeof response.body.firstName).toBe('string');
+      expect(typeof response.body.lastName).toBe('string');
+      expect(new Date(response.body.createdAt)).toBeInstanceOf(Date);
+      expect(new Date(response.body.updatedAt)).toBeInstanceOf(Date);
+    });
+  });
+});
+```

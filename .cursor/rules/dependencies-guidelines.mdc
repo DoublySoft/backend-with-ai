@@ -1,0 +1,449 @@
+---
+description: Key dependencies, tools, and libraries for NestJS backend development
+globs:
+alwaysApply: false
+---
+
+# Dependencies & Tools Guidelines
+
+## 1. Core Framework Dependencies
+
+### NestJS Core ✅ Implemented
+
+```json
+{
+  "@nestjs/common": "^11.1.8",
+  "@nestjs/core": "^11.1.4",
+  "@nestjs/platform-express": "^11.1.6",
+  "reflect-metadata": "^0.2.2",
+  "rxjs": "^7.8.1"
+}
+```
+
+### TypeScript Configuration
+
+- Strict type checking enabled
+- Strict null checks
+- No implicit any
+- Strict function types
+- Strict property initialization
+
+## 2. Authentication & Security
+
+### JWT & Passport ✅ Implemented
+
+```json
+{
+  "@nestjs/jwt": "^11.0.1",
+  "@nestjs/passport": "^11.0.5",
+  "passport": "^0.7.0",
+  "passport-jwt": "^4.0.1",
+  "passport-local": "^1.0.0",
+  "bcrypt": "^6.0.0"
+}
+```
+
+### Validation & Sanitization ✅ Implemented
+
+```json
+{
+  "class-validator": "^0.14.2",
+  "class-transformer": "^0.5.1",
+  "joi": "^18.0.1"
+}
+```
+
+**Note**: `joi` is used for environment variable validation, not for request validation (which uses `class-validator`).
+
+## 3. Database & ORM
+
+### Prisma (Primary ORM) ✅ Implemented
+
+```json
+{
+  "prisma": "^6.18.0",
+  "@prisma/client": "^6.18.0"
+}
+```
+
+**Note**: Prisma is in `devDependencies` (for CLI) and `dependencies` (for client).
+
+### MongoDB Native ✅ Implemented
+
+```json
+{
+  "mongodb": "^6.20.0"
+}
+```
+
+## 4. Testing Framework
+
+### Jest & Testing Tools ✅ Implemented
+
+```json
+{
+  "@nestjs/testing": "^11.1.6",
+  "jest": "^29.7.0",
+  "supertest": "^7.1.4",
+  "ts-jest": "^29.4.5",
+  "@types/jest": "^29.5.14",
+  "@types/supertest": "^6.0.2"
+}
+```
+
+## 5. Configuration & Environment
+
+### Environment Management
+
+```json
+{
+  "@nestjs/config": "^4.0.2"
+}
+```
+
+### Configuration Validation ✅ Implemented
+
+```json
+{
+  "joi": "^18.0.1"
+}
+```
+
+**Note**: Joi is used for environment variable validation in `libs/environment`.
+
+## 6. Communication & Events
+
+### Event Emitter
+
+```json
+{
+  "@nestjs/event-emitter": "^3.0.1"
+}
+```
+
+## 7. Caching & Performance ⏳ Planned
+
+### Redis Integration ⏳ Not Yet Implemented
+
+```json
+// ⏳ NOT YET IMPLEMENTED
+{
+  "@nestjs/cache-manager": "^2.1.0",
+  "cache-manager": "^5.2.0",
+  "cache-manager-redis-store": "^3.0.1",
+  "redis": "^4.6.0"
+}
+```
+
+**Status**: Redis caching is planned but not currently implemented in the codebase.
+
+## 8. Notifications & Communication
+
+### Email Services
+
+```json
+{
+  "node-mailjet": "^6.0.9"
+}
+```
+
+### SMS Services ⏳ Planned
+
+```json
+// ⏳ NOT YET IMPLEMENTED
+{
+  "twilio": "^4.0.0",
+  "vonage": "^3.0.0"
+}
+```
+
+### Push Notifications ⏳ Planned
+
+```json
+// ⏳ NOT YET IMPLEMENTED
+{
+  "firebase-admin": "^11.0.0",
+  "onesignal-node": "^3.0.0"
+}
+```
+
+## 9. Observability & Monitoring ✅ Implemented
+
+### Logging
+
+**Note**: NestJS built-in logging is used. Winston is not currently implemented.
+
+### Error Tracking ✅ Implemented
+
+```json
+{
+  "@sentry/nestjs": "^10.22.0"
+}
+```
+
+**Location**: `libs/observability/src/sentry.config.ts`
+
+### Analytics ✅ Implemented
+
+```json
+{
+  "posthog-node": "^5.17.2"
+}
+```
+
+**Location**: `libs/observability/src/posthog/`
+
+**Note**: PostHog is integrated for product analytics and feature flags.
+
+### Future Monitoring ⏳ Planned
+
+```json
+// ⏳ NOT YET IMPLEMENTED
+{
+  "elastic-apm-node": "^3.0.0"
+}
+```
+
+## 10. Development Tools
+
+### Code Quality ✅ Implemented
+
+```json
+{
+  "eslint": "^9.39.1",
+  "prettier": "^3.5.3",
+  "husky": "^9.1.7",
+  "lint-staged": "^16.2.6",
+  "typescript-eslint": "^8.47.0",
+  "eslint-config-prettier": "^10.1.5",
+  "eslint-plugin-prettier": "^5.5.4",
+  "@eslint/eslintrc": "^3.3.1",
+  "@eslint/js": "^9.39.1",
+  "globals": "^16.0.0"
+}
+```
+
+**Note**:
+
+- `lint-staged` is configured for pre-commit hooks
+- ESLint flat config is used (ESLint 9+)
+- `globals` provides TypeScript/Node globals for ESLint
+
+### Development Server
+
+```json
+{
+  "ts-node": "^10.9.2"
+}
+```
+
+## 11. Build & Deployment
+
+### Build Tools ✅ Implemented
+
+```json
+{
+  "@nestjs/cli": "^11.0.10",
+  "@nestjs/schematics": "^11.0.9"
+}
+```
+
+## 12. Type Definitions
+
+### Core Types ✅ Implemented
+
+```json
+{
+  "@types/node": "^24.9.1",
+  "@types/express": "^5.0.4",
+  "@types/bcrypt": "^6.0.0",
+  "@types/passport-jwt": "^4.0.1",
+  "@types/passport-local": "^1.0.38",
+  "@types/mongodb": "^4.0.6"
+}
+```
+
+**Note**: `@types/passport-jwt` is in `dependencies` (not devDependencies) for some reason, but it's a type definition.
+
+## 13. Version Management
+
+### Dependency Version Strategy
+
+- Use exact versions for critical dependencies
+- Use caret ranges for stable libraries
+- Regular dependency updates
+- Security vulnerability monitoring
+
+### Peer Dependencies
+
+- Ensure compatible versions
+- Avoid version conflicts
+- Test compatibility regularly
+
+## 14. Development Scripts
+
+### Package.json Scripts ✅ Implemented
+
+```json
+{
+  "scripts": {
+    "build": "nest build",
+    "start": "node dist/apps/api-gateway/main",
+    "start:dev": "NODE_ENV=development nest start --watch",
+    "start:staging": "NODE_ENV=staging nest start --watch",
+    "start:prod": "NODE_ENV=production node dist/apps/api-gateway/main",
+    "start:test": "NODE_ENV=test nest start --watch",
+    "start:debug": "nest start --debug --watch",
+    "start:build:prod": "node dist/apps/api-gateway/main",
+    "test": "jest",
+    "test:watch": "jest --watchAll",
+    "test:cov": "jest --coverage",
+    "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
+    "test:e2e": "jest --config ./apps/api-gateway/test/jest-e2e.json",
+    "test:e2e:watch": "jest --config ./apps/api-gateway/test/jest-e2e.json --watchAll",
+    "test:all": "npm run test && npm run test:e2e",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:down:all": "docker-compose down -v",
+    "docker:start": "docker-compose start",
+    "docker:stop": "docker-compose stop",
+    "docker:restart": "docker-compose restart",
+    "docker:logs": "docker-compose logs -f postgres",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:studio": "prisma studio",
+    "prisma:reset": "prisma migrate reset --force",
+    "data:seed": "ts-node -r tsconfig-paths/register prisma/seed.ts",
+    "data:setup": "npm run docker:up && npm run prisma:generate && npm run prisma:migrate && npm run data:seed",
+    "data:reset": "npm run docker:up && npm run prisma:reset && npm run data:seed",
+    "type:check": "tsc --noEmit",
+    "format": "prettier --write \"apps/**/*.ts\"",
+    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
+    "audit:check": "npm audit --audit-level high",
+    "audit:fix": "npm audit fix"
+  }
+}
+```
+
+**Additional Configuration**:
+
+```json
+{
+  "lint-staged": {
+    "apps/**/*.ts": ["eslint --fix", "prettier --write"],
+    "libs/**/*.ts": ["eslint --fix", "prettier --write"]
+  },
+  "overrides": {
+    "validator": "^13.15.15",
+    "class-validator": {
+      "validator": "^13.15.15"
+    }
+  }
+}
+```
+
+## 15. Additional Dependencies
+
+### Multi-tenancy and Context
+
+```json
+{
+  "nestjs-cls": "^6.0.1"
+}
+```
+
+### API Documentation ✅ Implemented
+
+```json
+{
+  "@nestjs/swagger": "^11.2.1",
+  "@nestjs/mapped-types": "*"
+}
+```
+
+**Note**: Swagger/OpenAPI documentation is available but may not be fully configured in all modules.
+
+### SWC Build Tools ✅ Implemented
+
+```json
+{
+  "@swc/cli": "^0.7.8",
+  "@swc/core": "^1.10.7"
+}
+```
+
+**Note**: SWC is used for faster TypeScript compilation and bundling.
+
+### Code Quality and Git ✅ Implemented
+
+```json
+{
+  "@commitlint/cli": "^20.1.0",
+  "@commitlint/config-conventional": "^20.0.0",
+  "source-map-support": "^0.5.21",
+  "ts-loader": "^9.5.4",
+  "tsconfig-paths": "^4.2.0",
+  "typescript": "^5.7.3"
+}
+```
+
+**Note**:
+
+- `source-map-support` enables source map support in Node.js
+- `tsconfig-paths` allows TypeScript path aliases to work at runtime
+- `ts-loader` is used for webpack builds (if needed)
+
+## 16. Security Considerations
+
+### Dependency Security
+
+- Regular security audits (`npm audit`)
+- Automated vulnerability scanning
+- Dependency update automation
+- License compliance checking
+- **Scripts**: `audit:check` and `audit:fix` available
+
+### Environment Variables
+
+- Secure secret management
+- Environment-specific configurations
+- Validation of required variables (via Joi in `libs/environment`)
+- Default value handling
+
+## 17. Implementation Status Summary
+
+### ✅ Fully Implemented Dependencies
+
+| Category       | Dependencies                                           | Status |
+| -------------- | ------------------------------------------------------ | ------ |
+| Core Framework | @nestjs/common, @nestjs/core, @nestjs/platform-express | ✅     |
+| Authentication | @nestjs/jwt, @nestjs/passport, passport, bcrypt        | ✅     |
+| Database       | @prisma/client, prisma, mongodb                        | ✅     |
+| Validation     | class-validator, class-transformer, joi                | ✅     |
+| Testing        | jest, @nestjs/testing, supertest, ts-jest              | ✅     |
+| Events         | @nestjs/event-emitter                                  | ✅     |
+| Notifications  | node-mailjet                                           | ✅     |
+| Observability  | @sentry/nestjs, posthog-node                           | ✅     |
+| API Docs       | @nestjs/swagger, @nestjs/mapped-types                  | ✅     |
+| Context        | nestjs-cls                                             | ✅     |
+| Build Tools    | @nestjs/cli, @swc/cli, @swc/core                       | ✅     |
+| Code Quality   | eslint, prettier, husky, lint-staged, commitlint       | ✅     |
+
+### ⏳ Planned/Not Implemented
+
+| Category           | Dependencies                   | Status                        |
+| ------------------ | ------------------------------ | ----------------------------- |
+| Caching            | Redis, cache-manager           | ⏳ Planned                    |
+| SMS                | Twilio, Vonage                 | ⏳ Planned                    |
+| Push Notifications | firebase-admin, onesignal-node | ⏳ Planned                    |
+| Logging            | winston                        | ⏳ Not used (NestJS built-in) |
+| Monitoring         | elastic-apm-node               | ⏳ Planned                    |
+
+### 📝 Notes
+
+- **Redis**: Listed in README but not in package.json - planned for future
+- **Winston**: Not used - NestJS built-in logger is sufficient
+- **Type Definitions**: Some type packages are in dependencies instead of devDependencies (e.g., `@types/passport-jwt`)
+- **Overrides**: `validator` package is overridden to version `^13.15.15` for compatibility with `class-validator`
+- **Lint-staged**: Configured for automatic linting/formatting on commit

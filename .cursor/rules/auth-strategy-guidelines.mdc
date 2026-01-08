@@ -1,0 +1,497 @@
+---
+description: Authentication and authorization strategies for NestJS backend
+globs:
+alwaysApply: false
+---
+
+# Authentication & Authorization Guidelines
+
+## 1. User Roles
+
+### Core User Roles ✅ Implemented
+
+```typescript
+enum EUserRole {
+  ADMIN = "admin",
+  PROFESSIONAL = "professional",
+}
+
+// User can have multiple core roles
+interface User {
+  id: string;
+  email: string;
+  roles: EUserRole[];
+  // ... other user properties
+}
+```
+
+**Location:** `libs/contracts/src/user/enums/user-role.enum.ts`
+
+### Multi-Role Support
+
+All users can have multiple roles simultaneously, enabling complex permission scenarios.
+
+## 2. Authentication Strategies
+
+### JWT Authentication ✅ Implemented
+
+- ✅ Use @nestjs/jwt for token generation and validation
+- ✅ Implement token refresh mechanisms (`refresh.use-case.ts`)
+- ✅ Secure token storage (Authorization header for APIs)
+- ✅ Token expiration configured via environment variables
+
+**Implementation:**
+
+- JWT tokens are generated using `JwtTokenService.getJwtToken()`
+- Tokens include `userId` and `expired` timestamp in payload
+- Token expiration is configured via `configService.jwt.expire`
+- Refresh mechanism validates token expiration before issuing new token
+
+### Passport Integration ✅ Implemented
+
+- ✅ Multiple authentication strategies support
+- ✅ Local strategy for username/password (`local.strategy.ts`)
+- ✅ JWT strategy for token validation (`jwt.strategy.ts`)
+- ⏳ External providers (Google, Apple, Meta, etc.) - **Planned**
+- ✅ Custom strategies for specific requirements
+
+**Current Strategies:**
+
+- `LocalStrategy`: Validates email/password credentials
+- `JwtStrategy`: Validates JWT tokens from Authorization header
+
+### Session Management ⚠️ Basic Implementation
+
+- ✅ Token-based session management via JWT
+- ✅ Token refresh mechanism
+- ⏳ Secure session storage - **Basic (JWT only)**
+- ⏳ Session timeout and cleanup - **Planned**
+- ⏳ Concurrent session handling - **Planned**
+- ✅ Session invalidation on logout (`log-out.use-case.ts`)
+
+## 3. Guards System ✅ Implemented
+
+### Overview
+
+The authorization system uses a hierarchical guard structure that validates access based on user context and resource type. Guards are implemented for specific entities and validate permissions accordingly.
+
+### Guard Naming Convention
+
+**Current Implementation:** Guards use simple entity-based naming:
+
+- `AuthGuard` - Base authentication guard
+- `AdminGuard` - Administrative access validation
+
+**Note:** Guards validate access based on the entity and user context extracted from the request.
+
+### Implemented Guards
+
+| Guard Name   | Location                                        | Purpose                                                       |
+| ------------ | ----------------------------------------------- | ------------------------------------------------------------- |
+| `AuthGuard`  | `libs/contracts/src/auth/guards/auth.guard.ts`  | Validates JWT token, extracts user, checks email verification |
+| `AdminGuard` | `libs/contracts/src/auth/guards/admin.guard.ts` | Validates user has ADMIN role                                 |
+
+### Guard Implementation Principles ✅ Implemented
+
+#### 1. Single Responsibility
+
+Each guard contains logic for a specific purpose:
+
+- **AdminGuard**: Validates administrative access
+- **AuthGuard**: Validates authentication and user status
+
+#### 2. Service Integration ✅ Implemented
+
+Guards delegate permission validation to specialized services:
+
+- ⏳ `PermissionService`: Core permission checking logic - **Planned**
+
+#### 3. Data Extraction Pattern ✅ Implemented
+
+Guards extract required data from the request context:
+
+- ✅ **User**: From `request.user` (injected by AuthGuard)
+- ✅ **Resource ID**: From `request.params.id`
+- ✅ **Roles**: From route metadata via decorators
+
+### Guard Hierarchy and Execution Order ✅ Implemented
+
+#### Primary Guards (Authentication & Authorization)
+
+1. ✅ **AuthGuard**: Validates JWT token and extracts user
+2. ✅ **AdminGuard**: Validates administrative access (when needed)
+3. ⏳ **PermissionGuard**: Validates specific actions on resource - **Planned**
+
+### Guard Configuration Patterns
+
+#### Basic Guard Structure
+
+- Extract user and resource information
+- Validate user context matches guard purpose
+- Check resource-specific permissions
+- Return boolean result or throw appropriate exception
+
+#### Error Handling
+
+- **401 Unauthorized**: Invalid or missing authentication
+- **403 Forbidden**: Valid authentication but insufficient permissions
+- **404 Not Found**: Resource doesn't exist or user has no access
+
+#### Performance Considerations
+
+- Cache permission results when appropriate
+- Use database indexes for permission queries
+- Implement guard result caching for repeated requests
+
+### Guard Composition Strategy ✅ Implemented
+
+#### Simple Endpoints
+
+Use entity-specific guards:
+
+- Admin endpoints → `AuthGuard` + `AdminGuard`
+- User endpoints → `AuthGuard`
+
+#### Complex Endpoints
+
+Combine multiple guards for comprehensive validation:
+
+- ✅ Administrative functions → `AuthGuard` + `AdminGuard`
+
+### Guard Testing Strategy
+
+#### Unit Testing
+
+- Test each guard in isolation
+- Mock dependencies (services, repositories)
+- Test all permission scenarios (allow/deny)
+
+#### Integration Testing
+
+- Test guard combinations
+- Validate real permission scenarios
+- Test with actual database state
+
+### Guard Documentation Standards
+
+#### Required Documentation
+
+- **Purpose**: What the guard validates
+- **Dependencies**: Required services and data
+- **Permissions**: What permissions are checked
+- **Error Cases**: When and why access is denied
+
+#### Code Comments
+
+- Document complex permission logic
+- Explain business rules implemented
+- Note any performance considerations
+
+### Guard Evolution Guidelines
+
+#### Phase 1: Basic Guards
+
+- Implement core context guards
+- Focus on essential permission checks
+- Keep logic simple and readable
+
+#### Phase 2: Advanced Guards
+
+- Add complex permission scenarios
+- Implement caching strategies
+- Add comprehensive error handling
+
+#### Phase 3: Dynamic Guards
+
+- Implement context-aware guards
+- Add conditional permission logic
+- Support dynamic permission rules
+
+## 4. Security Implementation ✅ Implemented
+
+### Guards Hierarchy
+
+```typescript
+// ✅ Implemented: libs/contracts/src/auth/guards/auth.guard.ts
+@Injectable()
+export class AuthGuard extends PassportAuthGuard("jwt") {
+  constructor(private readonly reflector: Reflector) {
+    super();
+  }
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const isPublic = this.reflector.get<boolean>(
+      IS_PUBLIC,
+      context.getHandler()
+    );
+    if (isPublic) return true;
+
+    const canActivate = (await super.canActivate(context)) as boolean;
+    if (!canActivate) return false;
+
+    const request = context.switchToHttp().getRequest<{ user: UserModel }>();
+    const user: UserModel = request.user;
+
+    if (user.deletedAt) return false;
+    if (user.isEmailVerified) return true;
+
+    return true;
+  }
+}
+```
+
+### Permission Decorators ⏳ Planned
+
+```typescript
+// ⏳ NOT YET IMPLEMENTED
+export const RequirePermission = (resource: string, action: string) =>
+  SetMetadata('permission', { resource, action });
+
+// Current implementation uses role-based decorators:
+@UseGuards(AuthGuard, AdminGuard)
+@Get('users/:id')
+getUser(@Param('id') id: string) {
+  return this.usersService.findById(id);
+}
+```
+
+## 5. Security Best Practices
+
+### Input Validation
+
+- Use class-validator for DTO validation
+- Sanitize user inputs
+- Prevent injection attacks
+- Validate file uploads
+
+### CORS Configuration
+
+```typescript
+app.enableCors({
+  origin: process.env.ALLOWED_ORIGINS?.split(",") || [],
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+});
+```
+
+### Helmet Security
+
+```typescript
+import helmet from 'helmet';
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none'"],
+    },
+  },
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true,
+  },
+  noSniff: true,
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  frameguard: { action: 'deny' },
+  xssFilter: true,
+  hidePoweredBy: true,
+  ieNoOpen: true,
+  dnsPrefetchControl: { allow: false },
+});
+```
+
+## 6. Error Handling
+
+### Authentication Errors
+
+- Invalid credentials (401)
+- Expired tokens (401)
+- Missing tokens (401)
+- Malformed tokens (401)
+
+### Authorization Errors
+
+- Insufficient permissions (403)
+- Resource not found (404)
+- Access denied (403)
+
+### Security Logging
+
+- Failed login attempts
+- Unauthorized access attempts
+- Token validation failures
+- Rate limit violations
+
+## 7. Token Management ✅ Implemented
+
+### JWT Configuration ✅ Implemented
+
+```typescript
+// ✅ Current implementation: apps/api-gateway/src/auth/auth.module.ts
+JwtModule.registerAsync({
+  useFactory: (
+    configService: ConfigType<typeof envConfig>
+  ): JwtModuleOptions => {
+    return {
+      secret: configService.jwt.secret,
+      signOptions: {
+        expiresIn: configService.jwt.expire,
+      },
+    } as JwtModuleOptions;
+  },
+  inject: [envConfig.KEY],
+});
+```
+
+**JWT Payload Structure:**
+
+```typescript
+interface JWTPayload {
+  userId: ObjectId;
+  expired: Date; // Session expiration timestamp
+}
+```
+
+### Refresh Token Strategy ✅ Implemented
+
+- ✅ Token refresh mechanism (`refresh.use-case.ts`)
+- ✅ Token expiration validation before refresh
+- ✅ New token generation on valid refresh
+- ⏳ Secure refresh token storage - **Basic (JWT-based)**
+- ⏳ Token rotation on refresh - **Planned**
+- ⏳ Concurrent token invalidation - **Planned**
+
+**Implementation Details:**
+
+- Refresh endpoint validates token expiration
+- If token is not expired, generates new JWT token
+- Token expiration is stored in JWT payload
+
+### Token Blacklisting ⏳ Planned
+
+- ⏳ Logout token invalidation - **Planned**
+- ⏳ Compromised token handling - **Planned**
+- ⏳ Token revocation strategies - **Planned**
+
+**Current State:** Logout exists (`log-out.use-case.ts`) but doesn't invalidate tokens server-side.
+
+## 8. Multi-Factor Authentication ⏳ Planned
+
+### TOTP Implementation ⏳ Planned
+
+- ⏳ Time-based one-time passwords - **Planned**
+- ⏳ QR code generation - **Planned**
+- ⏳ Backup codes - **Planned**
+- ⏳ Recovery mechanisms - **Planned**
+
+### SMS/Email Verification ✅ Partially Implemented
+
+- ✅ Email verification (`verify-email.use-case.ts`)
+- ✅ Phone number verification (`verify-phone-number.use-case.ts`)
+- ✅ Code generation (`generate-email-verify-code.use-case.ts`, `generate-phone-number-verify-code.use-case.ts`)
+- ✅ Code expiration - **Implemented in verification logic**
+- ⏳ Retry limitations - **Planned**
+
+**Current Implementation:**
+
+- Email verification codes are generated and sent
+- Phone verification codes are generated and sent
+- Verification validates codes and marks user as verified
+
+## 9. External Authentication ⏳ Planned
+
+### OAuth 2.0 Integration ⏳ Planned
+
+- ⏳ Google OAuth - **Planned**
+- ⏳ Apple OAuth - **Planned**
+- ⏳ Meta OAuth - **Planned**
+- ⏳ Custom OAuth providers - **Planned**
+- ⏳ Token exchange handling - **Planned**
+
+### SAML Integration ⏳ Planned
+
+- ⏳ Enterprise SSO - **Planned**
+- ⏳ Identity provider configuration - **Planned**
+- ⏳ Attribute mapping - **Planned**
+- ⏳ Single logout - **Planned**
+
+## 10. Current Authentication Implementation ✅
+
+### Authentication Use Cases Implemented ✅
+
+#### Registration Flow ✅
+
+1. ✅ **Sign Up** (`sign-up.use-case.ts`) - Creates user, generates email verification code
+2. ✅ **Email Verification** (`verify-email.use-case.ts`) - Validates email verification code
+3. ✅ **Phone Verification** (`verify-phone-number.use-case.ts`) - Validates phone verification code
+4. ✅ **Generate Email Code** (`generate-email-verify-code.use-case.ts`) - Generates email verification codes
+5. ✅ **Generate Phone Code** (`generate-phone-number-verify-code.use-case.ts`) - Generates phone verification codes
+
+#### Login Flow ✅
+
+1. ✅ **Log In** (`log-in.use-case.ts`) - Validates credentials, returns JWT token
+2. ✅ **Token Generation** (JWT via `JwtTokenService.getJwtToken()`) - Creates JWT with userId and expiration
+3. ✅ **Refresh Token** (`refresh.use-case.ts`) - Validates token expiration and issues new token
+4. ✅ **Log Out** (`log-out.use-case.ts`) - Logout endpoint (token invalidation planned)
+
+#### Recovery Flow ✅
+
+1. ✅ **Forgot Password** (`forgot-password.use-case.ts`) - Initiates password recovery
+2. ✅ **Recovery Password** (`recovery-password.use-case.ts`) - Resets password with recovery code
+3. ✅ **Email/Phone Code Generation** - Used for verification and recovery
+
+#### Additional Features ✅
+
+1. ✅ **Flow** (`flow.use-case.ts`) - Checks if user exists by email
+2. ✅ **Update Locale** (`update-locale.use-case.ts`) - Updates user locale preference
+3. ✅ **Update Onboarding** (`update-onboarding.use-case.ts`) - Updates onboarding status
+
+### Event System Integration ✅
+
+#### Domain Events Implemented
+
+**User Events:**
+
+- ✅ `user-created.event.ts`
+- ✅ `user-updated.event.ts`
+- ✅ `user-updated-email.event.ts`
+- ✅ `user-updated-password.event.ts`
+- ✅ `user-updated-role.event.ts`
+- ✅ `user-archived.event.ts`
+- ✅ `user-deleted.event.ts`
+
+### Security Monitoring ✅
+
+#### Implemented Security Features
+
+- ✅ Email verification required (enforced by `AuthGuard`)
+- ✅ Password recovery with codes
+- ✅ Role-based access control (via guards)
+- ✅ Event-driven audit logging
+- ✅ Comprehensive user activity tracking
+- ✅ Permission change notifications
+- ✅ Integration with notification system
+
+### Implementation Status Summary
+
+| Feature            | Status         | Notes                                |
+| ------------------ | -------------- | ------------------------------------ |
+| JWT Authentication | ✅ Implemented | Basic JWT with userId and expiration |
+| Token Refresh      | ✅ Implemented | Validates expiration before refresh  |
+| Local Strategy     | ✅ Implemented | Email/password authentication        |
+| Email Verification | ✅ Implemented | Code-based verification              |
+| Phone Verification | ✅ Implemented | Code-based verification              |
+| Password Recovery  | ✅ Implemented | Code-based recovery                  |
+| Admin Guards       | ✅ Implemented | Admin role validation                |
+| Token Blacklisting | ⏳ Planned     | Logout doesn't invalidate tokens     |
+| MFA/TOTP           | ⏳ Planned     | Not yet implemented                  |
+| OAuth/SAML         | ⏳ Planned     | Not yet implemented                  |

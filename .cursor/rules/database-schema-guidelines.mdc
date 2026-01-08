@@ -1,0 +1,448 @@
+---
+description: Database schema design patterns and relational data model strategies
+globs:
+alwaysApply: false
+---
+
+# Database Schema Guidelines
+
+## 1. Database Technologies
+
+### Primary Database: PostgreSQL with Prisma
+
+- Use Prisma as ORM for type-safe database access
+- PostgreSQL for relational data with ACID compliance
+- Connection pooling for performance
+- Migration management with version control
+- Generated client in `generated/prisma` directory
+- Multi-tenant support with custom factory
+
+### Secondary Database: MongoDB Native
+
+- MongoDB for document-based data and event sourcing
+- Native MongoDB driver for complex queries
+- Used primarily for events and notifications
+- Aggregation pipelines for analytics
+- Provider-based connection management
+
+## 2. Entity Design Patterns
+
+### Current Schema Structure ✅ Implemented
+
+Based on the Prisma schema, the current entities include:
+
+#### Core Entities
+
+- **Event**: Event sourcing and audit trail
+- **User**: User accounts with profiles
+- **UserProProfile**: Professional-specific user profile
+
+#### User Entity ✅ Implemented
+
+```prisma
+model User {
+  id                           String                @id @default(cuid())
+  firstName                    String
+  lastName                     String
+  email                        String                @unique
+  emailVerifyCode              String?
+  emailVerifyExpired           DateTime?
+  isEmailVerified              Boolean               @default(false)
+  isEmailVerifiedAt            DateTime?
+  phoneNumber                  String                // Required, not optional
+  phoneNumberVerifyCode        String?
+  phoneNumberVerifyExpired     DateTime?
+  isPhoneNumberVerified        Boolean               @default(false)
+  isPhoneNumberVerifiedAt      DateTime?
+  password                     String
+  passwordRecoveryCode         String?
+  passwordRecoveryExpired      DateTime?
+  roles                        UserRole[]
+  locale                       String?
+  deletedAt                    DateTime?
+  isDeleted                    Boolean               @default(false)
+  deletedById                  String?
+  createdAt                    DateTime              @default(now())
+  updatedAt                    DateTime              @updatedAt
+  isOnWhitelist                Boolean               @default(false)
+  isOnboardingComplete         Boolean               @default(false)
+
+  // Relations
+  deletedBy                    User?                 @relation("UserDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  deletedUsers                 User[]                @relation("UserDeletedBy")
+  proProfile                   UserProProfile?
+  events                       Event[]
+
+  @@map("users")
+}
+```
+
+**Note**: User entity does NOT have `archivedAt` or `isArchived` fields.
+
+#### Event Entity ✅ Implemented
+
+```prisma
+model Event {
+  id            String             @id @default(cuid())
+  type          String
+  entityId      String
+  data          Json
+  executedBy    String?
+  executionType EventExecutionType @default(system)
+  createdAt     DateTime           @default(now())
+  user          User?              @relation(fields: [executedBy], references: [id], onDelete: SetNull)
+
+  @@map("events")
+}
+```
+
+**Purpose**: Event sourcing and audit trail for all domain events.
+
+#### User Profile Entities ✅ Implemented
+
+```prisma
+model UserProProfile {
+  id          String         @id @default(cuid())
+  specialties ProSpecialty[]
+  maturity    ProMaturity
+  mainNeeds   ProMainNeed[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  user        User           @relation(fields: [id], references: [id], onDelete: Cascade)
+
+  @@map("users_pro_profiles")
+}
+```
+
+**Purpose**: User-specific profile data for Professional users.
+
+### Enums ✅ Implemented
+
+#### Core Enums
+
+```prisma
+enum UserRole {
+  admin
+  professional
+}
+
+enum EventExecutionType {
+  system
+  user
+}
+```
+
+#### Additional Enums
+
+The schema includes enums for:
+
+- **User Profiles**: `ProSpecialty`, `ProMaturity`, `ProMainNeed`
+- **Events**: `EventExecutionType`
+
+### Base Entity Pattern ✅ Implemented
+
+All entities follow a consistent pattern with:
+
+- **ID**: CUID-based primary keys (`@default(cuid())`)
+- **Timestamps**: `createdAt` and `updatedAt` fields (automatic via `@updatedAt`)
+- **Soft Delete**: `isDeleted` flag and `deletedAt` timestamp
+- **Deleted By Tracking**: `deletedById` and `deletedBy` relation for audit trail
+- **Audit Trail**: Automatic timestamp updates
+
+### Soft Delete Pattern ✅ Implemented
+
+- Use `isDeleted` flag instead of physical deletion
+- `deletedAt` timestamp for deletion tracking
+- `deletedById` field to track who deleted the entity
+- `deletedBy` relation to User for audit trail
+- `onDelete: SetNull` for deletedBy relations (preserves data even if user is deleted)
+- Maintain referential integrity
+- Enable data recovery
+- Audit trail preservation
+
+## 3. Relationship Patterns ✅ Implemented
+
+### One-to-One Relationships
+
+**Pattern**: User profile is a one-to-one relationship with User.
+
+```prisma
+model User {
+  proProfile UserProProfile?
+}
+
+model UserProProfile {
+  id   String @id @default(cuid())
+  user User   @relation(fields: [id], references: [id], onDelete: Cascade)
+}
+```
+
+**Benefits**:
+
+- Normalized data structure
+- Optional related data (can exist independently)
+- Cascade delete ensures data consistency
+
+### One-to-Many Relationships ✅ Implemented
+
+```prisma
+model User {
+  events Event[]
+}
+
+model Event {
+  executedBy String?
+  user       User?   @relation(fields: [executedBy], references: [id], onDelete: SetNull)
+}
+```
+
+### Self-Referencing Relationships ✅ Implemented
+
+```prisma
+model User {
+  id         String   @id @default(cuid())
+  deletedById String?
+  deletedBy   User?   @relation("UserDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  deletedUsers User[] @relation("UserDeletedBy")
+}
+```
+
+**Use Cases**:
+
+- Tracking who deleted entities
+- Hierarchical data structures
+- Audit trails
+
+## 4. Indexing Strategies
+
+### Primary Keys ✅ Implemented
+
+- **CUID-based IDs**: All entities use `@default(cuid())` for primary keys
+- **CUID Benefits**:
+  - Collision-resistant
+  - URL-safe
+  - Sortable by creation time
+  - Works well in distributed systems
+
+### Performance Indexes
+
+```sql
+-- User email uniqueness
+CREATE UNIQUE INDEX idx_users_email ON users(email) WHERE is_deleted = false;
+
+-- Full-text search
+CREATE INDEX idx_users_name_fts ON users USING gin(to_tsvector('english', first_name || ' ' || last_name));
+```
+
+### Composite Indexes
+
+- Order columns by selectivity
+- Covering indexes for frequent queries
+- Partial indexes for filtered data
+
+## 5. Data Validation
+
+### Database Constraints
+
+```sql
+-- Check constraints
+ALTER TABLE users ADD CONSTRAINT chk_email_format
+CHECK (email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$');
+
+-- Not null constraints
+ALTER TABLE users ADD CONSTRAINT nn_user_email
+CHECK (email IS NOT NULL AND length(trim(email)) > 0);
+```
+
+### Application-Level Validation
+
+```typescript
+export class CreateUserDto {
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
+
+  @IsString()
+  @MinLength(8)
+  @MaxLength(100)
+  password: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  firstName?: string;
+}
+```
+
+## 6. Migration Management
+
+### Current Database Setup
+
+#### Prisma Configuration
+
+```prisma
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("POSTGRES_URI")
+}
+```
+
+#### Migration Management
+
+```bash
+# Generate Prisma client
+npm run prisma:generate
+
+# Create and apply migration
+npm run prisma:migrate
+
+# Reset database with seed
+npm run prisma:reset
+
+# Open Prisma Studio
+npm run prisma:studio
+
+# Run seed script
+npm run data:seed
+```
+
+#### Docker Setup
+
+```bash
+# Start PostgreSQL container
+npm run docker:up
+
+# Complete data setup
+npm run data:setup
+
+# Reset all data
+npm run data:reset
+```
+
+### Current Migration Structure ✅ Implemented
+
+```bash
+prisma/
+├── migrations/
+│   ├── 20251219112751_init/
+│   │   └── migration.sql
+│   └── migration_lock.toml
+├── schema.prisma
+├── seed/
+│   ├── events.seed.ts
+│   ├── notifications.seed.ts
+│   ├── user-profiles.seed.ts
+│   └── users.seed.ts
+└── seed.ts
+```
+
+### Migration Best Practices
+
+- One change per migration
+- Descriptive migration names
+- Backward compatibility considerations
+- Data migration scripts in separate files
+- Rollback strategies
+- Test migrations in development first
+
+## 7. Query Optimization
+
+### N+1 Query Prevention
+
+```typescript
+// Bad: N+1 queries
+const users = await this.userRepository.find();
+for (const user of users) {
+  const events = await this.eventRepository.findByUserId(user.id);
+}
+
+// Good: Single query with joins
+const usersWithEvents = await this.userRepository
+  .createQueryBuilder('user')
+  .leftJoinAndSelect('user.events', 'event')
+  .getMany();
+```
+
+### Pagination
+
+```typescript
+export class PaginationDto {
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number = 10;
+}
+```
+
+### Caching Strategies
+
+- Query result caching
+- Cache invalidation patterns
+- Redis integration
+- Cache warming strategies
+
+## 8. Data Integrity
+
+### Cascade Operations
+
+- CASCADE DELETE for dependent data
+- SET NULL for optional relationships
+- RESTRICT for critical dependencies
+
+### Transaction Management
+
+```typescript
+@Injectable()
+export class UserService {
+  async createUserWithProfile(userData: CreateUserDto, profileData: CreateProfileDto) {
+    return await this.dataSource.transaction(async (manager) => {
+      const user = await manager.save(User, userData);
+      const profile = await manager.save(UserProProfile, { ...profileData, id: user.id });
+      return { user, profile };
+    });
+  }
+}
+```
+
+## 9. Performance Monitoring
+
+### Query Performance
+
+- Slow query logging
+- Execution plan analysis
+- Index usage monitoring
+- Connection pool metrics
+
+### Database Metrics
+
+- Connection count
+- Query execution time
+- Lock contention
+- Disk I/O patterns
+
+## 10. Backup and Recovery
+
+### Backup Strategies
+
+- Automated daily backups
+- Point-in-time recovery
+- Cross-region replication
+- Backup verification
+
+### Disaster Recovery
+
+- Recovery time objectives (RTO)
+- Recovery point objectives (RPO)
+- Failover procedures
+- Data consistency checks
