@@ -1,0 +1,17 @@
+export const AuthLiteral = {
+  SIGN_UP_SUCCESS: "auth.sign.up.success",
+  SIGN_UP_ERROR: "auth.sign.up.error",
+  LOG_IN_SUCCESS: "auth.log.in.success",
+  LOG_IN_ERROR: "auth.log.in.error",
+  LOG_OUT_SUCCESS: "auth.log.out.success",
+  LOG_OUT_ERROR: "auth.log.out.error",
+  REFRESH_SUCCESS: "auth.refresh.success",
+  REFRESH_ERROR: "auth.refresh.error",
+  EMAIL_VERIFIED_SUCCESS: "auth.email.verified.success",
+  EMAIL_VERIFIED_ERROR: "auth.email.verified.error",
+  PHONE_VERIFIED_SUCCESS: "auth.phone.verified.success",
+  PHONE_VERIFIED_ERROR: "auth.phone.verified.error",
+  PASSWORD_RESET_REQUEST_SUCCESS: "auth.password.reset.request.success",
+  PASSWORD_RESET_SUCCESS: "auth.password.reset.success",
+  PASSWORD_RESET_ERROR: "auth.password.reset.error",
+} as const;
