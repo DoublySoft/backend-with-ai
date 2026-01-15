@@ -1,0 +1,105 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  admin
+  professional
+}
+
+enum EventExecutionType {
+  system
+  user
+}
+
+enum ProSpecialty {
+  architecture
+  interior_design
+  construction
+  engineering
+  other
+}
+
+enum ProMaturity {
+  beginner
+  intermediate
+  advanced
+  expert
+}
+
+enum ProMainNeed {
+  project_management
+  cost_estimation
+  design_tools
+  collaboration
+  other
+}
+
+model User {
+  id                           String                @id @default(cuid())
+  firstName                    String
+  lastName                     String
+  email                        String                @unique
+  emailVerifyCode              String?
+  emailVerifyExpired           DateTime?
+  isEmailVerified              Boolean               @default(false)
+  isEmailVerifiedAt            DateTime?
+  phoneNumber                  String
+  phoneNumberVerifyCode        String?
+  phoneNumberVerifyExpired     DateTime?
+  isPhoneNumberVerified        Boolean               @default(false)
+  isPhoneNumberVerifiedAt      DateTime?
+  password                     String
+  passwordRecoveryCode         String?
+  passwordRecoveryExpired      DateTime?
+  roles                        UserRole[]
+  locale                       String?
+  deletedAt                    DateTime?
+  isDeleted                    Boolean               @default(false)
+  deletedById                  String?
+  createdAt                    DateTime              @default(now())
+  updatedAt                    DateTime              @updatedAt
+  isOnWhitelist                Boolean               @default(false)
+  isOnboardingComplete         Boolean               @default(false)
+
+  // Relations
+  deletedBy                    User?                 @relation("UserDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  deletedUsers                 User[]                @relation("UserDeletedBy")
+  proProfile                   UserProProfile?
+  events                       Event[]
+
+  @@map("users")
+}
+
+model UserProProfile {
+  id          String         @id @default(cuid())
+  specialties ProSpecialty[]
+  maturity    ProMaturity
+  mainNeeds   ProMainNeed[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  user        User           @relation(fields: [id], references: [id], onDelete: Cascade)
+
+  @@map("users_pro_profiles")
+}
+
+model Event {
+  id            String             @id @default(cuid())
+  type          String
+  entityId      String
+  data          Json
+  executedBy    String?
+  executionType EventExecutionType @default(system)
+  createdAt     DateTime           @default(now())
+  user          User?              @relation(fields: [executedBy], references: [id], onDelete: SetNull)
+
+  @@map("events")
+}
