@@ -24,7 +24,8 @@
     "resolveJsonModule": true,
     "paths": {
       "@libs/*": ["libs/*/src"],
-      "@apps/*": ["apps/*/src"]
+      "@apps/*": ["apps/*/src"],
+      "@prisma/client": ["./generated/prisma/client"]
     }
   },
   "exclude": ["node_modules", "dist"]
